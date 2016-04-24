@@ -78,7 +78,7 @@ public class PharmaciesController extends Controller {
         }
 
         //ensure prescriptions exist for that patient
-        ServiceResponse<List<PrescriptionItem>> prescriptionItemsResponse = searchService.retrieveUnreplacedPrescriptionItems(patientEncounterItemServiceResponse.getResponseObject().getId());
+        ServiceResponse<List<PrescriptionItem>> prescriptionItemsResponse = searchService.retrieveUnreplacedPrescriptionItems(patientEncounterItem.getId());
         if (prescriptionItemsResponse.hasErrors()) {
             throw new RuntimeException();
 
@@ -133,6 +133,8 @@ public class PharmaciesController extends Controller {
             return ok(index.render(currentUserSession, "No prescriptions found for that patient", 0));
         }
         viewModelGet.setPrescriptions(prescriptionItemServiceResponse.getResponseObject());
+
+        // get inventory for prescriptions
 
         //get MedicationAdministrationItems
         ServiceResponse<List<MedicationAdministrationItem>> medicationAdministrationItemServiceResponse =
@@ -194,6 +196,11 @@ public class PharmaciesController extends Controller {
         for(PrescriptionItem script : createViewModelPost.getPrescriptions()) {
 
             if (StringUtils.isNotNullOrWhiteSpace(script.getMedicationName())) {
+                //The POST data sends -1 if an administration ID is not set. Null is more appropriate for the
+                //service layer
+                if (script.getAdministrationID() == -1)
+                    script.setAdministrationID(null);
+
                 //create a new prescription to replace the old prescription.
                 if (script.getAmount() == null){
                     script.setAmount(0);
@@ -201,6 +208,7 @@ public class PharmaciesController extends Controller {
 
                 if (script.getMedicationID() != null){
                     //the medication has already been entered into the medications table (through admin inventory?)
+
                     ServiceResponse<PrescriptionItem> createPrescriptionResponse = medicationService.createPrescription(script.getMedicationID(),
                             script.getAdministrationID(),
                             patientEncounterItem.getId(),
@@ -225,32 +233,46 @@ public class PharmaciesController extends Controller {
                     prescriptionsToReplace.put(newPrescriptionItem.getId(), script.getId());
                 }
 
-
-
-
-
             } else {
                 // mark the prescription for dispensing
                 prescriptionsToDispense.put(script.getId(), isCounseled);
             }
         }
 
-        // replace the prescriptions!
+        // replace the prescriptions! (but do not dispense them)
         if (prescriptionsToReplace.size() > 0){
             ServiceResponse<List<PrescriptionItem>> replacePrescriptionsServiceResponse = medicationService.replacePrescriptions(prescriptionsToReplace);
-            if (replacePrescriptionsServiceResponse.hasErrors()){
+            if (replacePrescriptionsServiceResponse.hasErrors()) {
 
                 throw new RuntimeException();
+            } else {
+
+                for (PrescriptionItem prescriptionItem : replacePrescriptionsServiceResponse.getResponseObject()) {
+
+                    prescriptionsToDispense.put(prescriptionItem.getId(), prescriptionItem.getCounseled());
+                }
             }
         }
 
-        // dispense the prescriptions!
+        // dispense the prescriptions! then inventory them!
         if (prescriptionsToDispense.size() > 0) {
+            //dispense!
             ServiceResponse<List<PrescriptionItem>> dispensePrescriptionsServiceResponse = medicationService.dispensePrescriptions(prescriptionsToDispense);
-            if (dispensePrescriptionsServiceResponse.hasErrors()){
+            if (dispensePrescriptionsServiceResponse.hasErrors()) {
 
                 throw new RuntimeException();
+            } else if( currentUserSession.getTripId() != null ) {
+                //inventory -- user must be assigned to a trip
+                for (PrescriptionItem prescriptionItem : dispensePrescriptionsServiceResponse.getResponseObject()) {
+
+                    ServiceResponse<MedicationItem> inventoryServiceResponse = inventoryService.subtractFromQuantityCurrent(prescriptionItem.getMedicationID(), currentUserSession.getTripId(), prescriptionItem.getAmount());
+                    if (inventoryServiceResponse.hasErrors()){
+
+                        throw new RuntimeException();
+                    }
+                }
             }
+
         }
 
         //check the patient in!

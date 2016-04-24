@@ -182,22 +182,34 @@ public class MedicalController extends Controller {
 
             throw new RuntimeException();
         }
+
+        ServiceResponse<Map<String, List<String>>> tabFieldToTabMappingServiceResponse = tabService.retrieveTabFieldToTabMapping(false, false);
+        if (tabFieldToTabMappingServiceResponse.hasErrors()){
+
+            throw new RuntimeException();
+        }
+        Map<String, List<String>> tabFieldToTabMapping = tabFieldToTabMappingServiceResponse.getResponseObject();
+
+
+
         List<TabItem> tabItems = tabItemServiceResponse.getResponseObject();
         //match the fields to their respective tabs
         for (TabItem tabItem : tabItems) {
 
             switch (tabItem.getName().toLowerCase()) {
                 case "hpi":
-                    tabItem.setFields(FieldHelper.structureHPIFieldsForView(tabFieldMultiMap));
+                    tabItem.setFields(FieldHelper.structureHPIFieldsForView(tabFieldMultiMap, tabFieldToTabMapping.get("hpi")));
                     break;
                 case "pmh":
-                    tabItem.setFields(FieldHelper.structurePMHFieldsForView(tabFieldMultiMap));
+                    tabItem.setFields(FieldHelper.structurePMHFieldsForView(tabFieldMultiMap, tabFieldToTabMapping.get("pmh")));
                     break;
                 case "treatment":
-                    tabItem.setFields(FieldHelper.structureTreatmentFieldsForView(tabFieldMultiMap));
+                    tabItem.setFields(FieldHelper.structureTreatmentFieldsForView(tabFieldMultiMap, tabFieldToTabMapping.get("treatment")));
+                    break;
+                case "photos":
                     break;
                 default:
-                    tabItem.setFields(fieldHelper.structureDynamicFieldsForView(tabFieldMultiMap));
+                    tabItem.setFields(fieldHelper.structureDynamicFieldsForView(tabFieldMultiMap, tabFieldToTabMapping.get(tabItem.getName().toLowerCase())));
                     break;
             }
         }
@@ -359,9 +371,16 @@ public class MedicalController extends Controller {
 
         for (PrescriptionItem prescriptionItem : prescriptionItemsWithoutID){
 
+<<<<<<< HEAD
             if (StringUtils.isNullOrWhiteSpace(prescriptionItem.getMedicationName())) {
                 continue;
             }
+=======
+            //The POST data sends -1 if an administration ID is not set. Null is more appropriate for the
+            //service layer
+            if (prescriptionItem.getAdministrationID() == -1)
+                prescriptionItem.setAdministrationID(null);
+>>>>>>> e8393f580113b365f4f3280c5baf737dffdc8b96
 
             createPrescriptionServiceResponse = medicationService.createPrescriptionWithNewMedication(
                     prescriptionItem.getMedicationName(),
